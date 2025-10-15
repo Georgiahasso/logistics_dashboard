@@ -633,14 +633,21 @@ const LogisticsDashboard = () => {
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
-    if (!file) return;
+    console.log('File selected:', file);
+    if (!file) {
+      console.log('No file selected');
+      return;
+    }
 
+    console.log('Starting Papa.parse with file:', file.name, file.type, file.size);
     Papa.parse(file, {
       header: true,
       dynamicTyping: true,
       skipEmptyLines: true,
       complete: (results) => {
+        console.log('Papa.parse complete:', results);
         if (results.data.length === 0) {
+          console.log('No data found in CSV file');
           setDataStatus({
             success: false,
             message: 'No data found in CSV file',
@@ -683,6 +690,7 @@ const LogisticsDashboard = () => {
         setAnswer(null);
       },
       error: (error) => {
+        console.error('Papa.parse error:', error);
         setDataStatus({
           success: false,
           message: `Error parsing CSV: ${error.message}`,
@@ -813,7 +821,10 @@ const LogisticsDashboard = () => {
                 <input
                   type="file"
                   accept=".csv"
-                  onChange={handleFileUpload}
+                  onChange={(e) => {
+                    console.log('File input onChange triggered:', e.target.files);
+                    handleFileUpload(e);
+                  }}
                   className="hidden"
                 />
               </label>
