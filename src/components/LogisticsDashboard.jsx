@@ -651,7 +651,7 @@ const LogisticsDashboard = () => {
         }
 
         const headers = Object.keys(results.data[0]);
-        const { mapping } = mapColumns(headers);
+        const { mapping, unmapped } = mapColumns(headers);
         
         const transformedData = results.data.map(row => {
           const standardRow = {};
@@ -677,6 +677,7 @@ const LogisticsDashboard = () => {
           message: `Successfully loaded ${transformedData.length} records`,
           available: availableFields,
           missing: missingFields,
+          unmapped: unmapped,
           totalRows: transformedData.length
         });
         setAnswer(null);
@@ -761,6 +762,11 @@ const LogisticsDashboard = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {usingSampleData && (
+                <span className="px-3 py-1 bg-yellow-500/20 border border-yellow-500/50 text-yellow-200 text-sm rounded-full">
+                  Using Sample Data
+                </span>
+              )}
               <button
                 onClick={() => setShowMLPanel(!showMLPanel)}
                 className="p-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg"
@@ -792,6 +798,146 @@ const LogisticsDashboard = () => {
             </div>
           </div>
         </div>
+
+        {/* File Upload Section */}
+        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 mb-6 border border-white/20">
+          <div className="flex items-start gap-4">
+            <Upload className="w-6 h-6 text-blue-400 mt-1" />
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-white mb-2">Upload Your CSV Data</h3>
+              <p className="text-blue-200 text-sm mb-3">
+                Replace sample data with your actual logistics data. The dashboard will automatically map your column names.
+              </p>
+              <label className="inline-block px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg cursor-pointer transition-colors">
+                Choose CSV File
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* Data Status Display */}
+        {dataStatus && (
+          <div className={`backdrop-blur-lg rounded-xl p-6 mb-6 border ${
+            dataStatus.success 
+              ? 'bg-green-500/10 border-green-500/30' 
+              : 'bg-red-500/10 border-red-500/30'
+          }`}>
+            <div className="flex items-start gap-4">
+              {dataStatus.success ? (
+                <CheckCircle className="w-6 h-6 text-green-400 mt-1" />
+              ) : (
+                <XCircle className="w-6 h-6 text-red-400 mt-1" />
+              )}
+              <div className="flex-1">
+                <h3 className={`text-lg font-semibold mb-2 ${
+                  dataStatus.success ? 'text-green-200' : 'text-red-200'
+                }`}>
+                  {dataStatus.success ? 'Data Upload Successful' : 'Data Upload Failed'}
+                </h3>
+                <p className={`mb-4 ${
+                  dataStatus.success ? 'text-green-100' : 'text-red-100'
+                }`}>
+                  {dataStatus.message}
+                </p>
+
+                {dataStatus.success && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Available Fields */}
+                    <div>
+                      <h4 className="font-semibold text-white mb-2 flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                        Available Data Fields ({dataStatus.available.length})
+                      </h4>
+                      <div className="bg-white/10 rounded-lg p-3 max-h-48 overflow-y-auto">
+                        {dataStatus.available.length > 0 ? (
+                          <ul className="space-y-1">
+                            {dataStatus.available.map(field => (
+                              <li key={field} className="text-sm text-green-200 flex items-center gap-2">
+                                <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
+                                {field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-gray-400">No fields mapped</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Missing Fields */}
+                    <div>
+                      <h4 className="font-semibold text-white mb-2 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-yellow-400" />
+                        Missing Data Fields ({dataStatus.missing.length})
+                      </h4>
+                      <div className="bg-white/10 rounded-lg p-3 max-h-48 overflow-y-auto">
+                        {dataStatus.missing.length > 0 ? (
+                          <ul className="space-y-1">
+                            {dataStatus.missing.map(field => (
+                              <li key={field} className="text-sm text-yellow-200 flex items-center gap-2">
+                                <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full"></div>
+                                {field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-green-300">All fields present!</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {dataStatus.unmapped && dataStatus.unmapped.length > 0 && (
+                  <div className="mt-4 p-3 bg-orange-500/20 border border-orange-500/30 rounded-lg">
+                    <h4 className="font-semibold text-orange-200 mb-2 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      Unmapped Columns
+                    </h4>
+                    <p className="text-sm text-orange-100 mb-2">
+                      These columns were not recognized and will be ignored:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {dataStatus.unmapped.map(col => (
+                        <span key={col} className="px-2 py-1 bg-orange-500/30 text-orange-100 text-xs rounded">
+                          {col}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!dataStatus.success && (
+                  <div className="mt-4 p-4 bg-blue-500/20 border border-blue-500/30 rounded-lg">
+                    <h4 className="font-semibold text-blue-200 mb-2">Accepted Column Names</h4>
+                    <p className="text-sm text-blue-100 mb-3">
+                      Your CSV should include columns with names similar to these (case-insensitive):
+                    </p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {Object.entries(COLUMN_MAPPINGS).map(([field, variations]) => (
+                        <div key={field} className="bg-white/10 rounded p-2">
+                          <div className="text-xs font-semibold text-white mb-1">
+                            {field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </div>
+                          <div className="text-xs text-blue-200">
+                            {variations.slice(0, 2).join(', ')}
+                            {variations.length > 2 && ', ...'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ML Panel */}
         {showMLPanel && (
