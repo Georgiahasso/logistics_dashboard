@@ -624,30 +624,27 @@ const LogisticsDashboard = () => {
 
   const sampleQuestions = [
     "What is the delay rate?",
+    "Show shipment status distribution",
+    "What are the main delay reasons?",
     "Predict delivery delays",
     "Optimize carrier selection",
-    "Show historical trends",
-    "Run ML predictions",
-    "What-if carrier switch"
+    "Detect cost anomalies",
+    "Forecast shipping expenses by route",
+    "What is the average asset utilization?",
+    "Show traffic status breakdown",
+    "Compare carrier performance"
   ];
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
-    console.log('File selected:', file);
-    if (!file) {
-      console.log('No file selected');
-      return;
-    }
+    if (!file) return;
 
-    console.log('Starting Papa.parse with file:', file.name, file.type, file.size);
     Papa.parse(file, {
       header: true,
       dynamicTyping: true,
       skipEmptyLines: true,
       complete: (results) => {
-        console.log('Papa.parse complete:', results);
         if (results.data.length === 0) {
-          console.log('No data found in CSV file');
           setDataStatus({
             success: false,
             message: 'No data found in CSV file',
@@ -690,7 +687,6 @@ const LogisticsDashboard = () => {
         setAnswer(null);
       },
       error: (error) => {
-        console.error('Papa.parse error:', error);
         setDataStatus({
           success: false,
           message: `Error parsing CSV: ${error.message}`,
@@ -732,6 +728,540 @@ const LogisticsDashboard = () => {
     });
   };
 
+  const analyzeQuestion = (q) => {
+    const query = q.toLowerCase();
+    
+    // Predict Delivery Delays
+    if (query.includes('predict delay') || query.includes('delivery delay') || query.includes('delay predict')) {
+      const hasRequiredData = data.some(d => 
+        d.distance_miles !== undefined && 
+        d.transit_days !== undefined && 
+        d.logistics_delay !== undefined
+      );
+      
+      if (!hasRequiredData) {
+        return {
+          type: 'text',
+          title: 'Delay Prediction',
+          description: 'Insufficient data for delay prediction. Please ensure your CSV includes distance_miles, transit_days, and logistics_delay columns.'
+        };
+      }
+      
+      const validData = data.filter(d => 
+        !isNaN(d.distance_miles) && 
+        !isNaN(d.transit_days) && 
+        d.logistics_delay !== undefined
+      );
+      
+      const distanceRanges = [
+        { range: '0-500 miles', min: 0, max: 500 },
+        { range: '501-1000 miles', min: 501, max: 1000 },
+        { range: '1001-1500 miles', min: 1001, max: 1500 },
+        { range: '1500+ miles', min: 1501, max: Infinity }
+      ];
+      
+      const delayByDistance = distanceRanges.map(({ range, min, max }) => {
+        const inRange = validData.filter(d => d.distance_miles >= min && d.distance_miles <= max);
+        const delayed = inRange.filter(d => d.logistics_delay === 1 || d.logistics_delay === true);
+        const delayRate = inRange.length > 0 ? ((delayed.length / inRange.length) * 100).toFixed(1) : 0;
+        return { name: range, value: parseFloat(delayRate), count: inRange.length };
+      });
+      
+      const delayedShipments = validData.filter(d => d.logistics_delay === 1 || d.logistics_delay === true);
+      const onTimeShipments = validData.filter(d => d.logistics_delay === 0 || d.logistics_delay === false);
+      const avgDelayedTransit = delayedShipments.length > 0 
+        ? (delayedShipments.reduce((sum, d) => sum + d.transit_days, 0) / delayedShipments.length).toFixed(1)
+        : 0;
+      const avgOnTimeTransit = onTimeShipments.length > 0
+        ? (onTimeShipments.reduce((sum, d) => sum + d.transit_days, 0) / onTimeShipments.length).toFixed(1)
+        : 0;
+      
+      return {
+        type: 'kpi-chart',
+        title: 'Delivery Delay Prediction Model',
+        kpi: `${((delayedShipments.length / validData.length) * 100).toFixed(1)}%`,
+        kpiLabel: 'Overall Delay Probability',
+        chartData: delayByDistance,
+        chartType: 'bar',
+        description: `Delayed shipments average ${avgDelayedTransit} transit days vs ${avgOnTimeTransit} days for on-time deliveries. Long-distance shipments show higher delay risk.`
+      };
+    }
+    
+    // Optimize Carrier Selection
+    if (query.includes('carrier') && (query.includes('optimize') || query.includes('compare') || query.includes('best') || query.includes('selection') || query.includes('performance'))) {
+      const hasCarrierData = data.some(d => 
+        d.carrier !== undefined && 
+        d.cost !== undefined && 
+        d.transit_days !== undefined
+      );
+      
+      if (!hasCarrierData) {
+        return {
+          type: 'text',
+          title: 'Carrier Optimization',
+          description: 'Insufficient data for carrier analysis. Please ensure your CSV includes carrier, cost, and transit_days columns.'
+        };
+      }
+      
+      const validData = data.filter(d => 
+        d.carrier && 
+        !isNaN(d.cost) && 
+        !isNaN(d.transit_days)
+      );
+      
+      const carrierStats = {};
+      validData.forEach(d => {
+        if (!carrierStats[d.carrier]) {
+          carrierStats[d.carrier] = { costs: [], transitTimes: [], delays: 0, total: 0 };
+        }
+        carrierStats[d.carrier].costs.push(d.cost);
+        carrierStats[d.carrier].transitTimes.push(d.transit_days);
+        carrierStats[d.carrier].total++;
+        if (d.logistics_delay === 1 || d.logistics_delay === true) {
+          carrierStats[d.carrier].delays++;
+        }
+      });
+      
+      const carrierAnalysis = Object.entries(carrierStats).map(([carrier, stats]) => {
+        const avgCost = stats.costs.reduce((a, b) => a + b, 0) / stats.costs.length;
+        const avgTransit = stats.transitTimes.reduce((a, b) => a + b, 0) / stats.transitTimes.length;
+        const delayRate = (stats.delays / stats.total) * 100;
+        
+        const costScore = 100 - ((avgCost / 5000) * 100);
+        const speedScore = 100 - ((avgTransit / 15) * 100);
+        const reliabilityScore = 100 - delayRate;
+        const efficiencyScore = ((costScore + speedScore + reliabilityScore) / 3).toFixed(1);
+        
+        return {
+          name: carrier,
+          value: parseFloat(efficiencyScore),
+          avgCost: avgCost.toFixed(2),
+          avgTransit: avgTransit.toFixed(1),
+          delayRate: delayRate.toFixed(1)
+        };
+      }).sort((a, b) => b.value - a.value);
+      
+      const bestCarrier = carrierAnalysis[0];
+      
+      return {
+        type: 'kpi-chart',
+        title: 'Carrier Performance Optimization',
+        kpi: bestCarrier.name,
+        kpiLabel: 'Recommended Carrier',
+        chartData: carrierAnalysis.map(c => ({ name: c.name, value: c.value })),
+        chartType: 'bar',
+        description: `${bestCarrier.name} has the best efficiency score (${bestCarrier.value}/100) with avg cost $${bestCarrier.avgCost}, ${bestCarrier.avgTransit} days transit, and ${bestCarrier.delayRate}% delay rate.`
+      };
+    }
+    
+    // Detect Cost Anomalies
+    if (query.includes('anomal') || query.includes('unusual') || (query.includes('cost') && query.includes('detect'))) {
+      const hasRequiredData = data.some(d => 
+        d.cost !== undefined && 
+        d.weight_kg !== undefined && 
+        d.distance_miles !== undefined
+      );
+      
+      if (!hasRequiredData) {
+        return {
+          type: 'text',
+          title: 'Cost Anomaly Detection',
+          description: 'Insufficient data for anomaly detection. Please ensure your CSV includes cost, weight_kg, and distance_miles columns.'
+        };
+      }
+      
+      const validData = data.filter(d => 
+        !isNaN(d.cost) && 
+        !isNaN(d.weight_kg) && 
+        !isNaN(d.distance_miles) &&
+        d.cost > 0 &&
+        d.weight_kg > 0 &&
+        d.distance_miles > 0
+      );
+      
+      const costsPerUnit = validData.map(d => ({
+        shipmentId: d.shipment_id || `Shipment ${d.asset_id}`,
+        costPerUnit: d.cost / (d.distance_miles * d.weight_kg),
+        cost: d.cost,
+        weight: d.weight_kg,
+        distance: d.distance_miles
+      }));
+      
+      const values = costsPerUnit.map(c => c.costPerUnit).sort((a, b) => a - b);
+      const q1 = values[Math.floor(values.length * 0.25)];
+      const q3 = values[Math.floor(values.length * 0.75)];
+      const iqr = q3 - q1;
+      const lowerBound = q1 - 1.5 * iqr;
+      const upperBound = q3 + 1.5 * iqr;
+      
+      const anomalies = costsPerUnit.filter(c => 
+        c.costPerUnit < lowerBound || c.costPerUnit > upperBound
+      );
+      
+      const anomalyTypes = {
+        'Overcharged': anomalies.filter(a => a.costPerUnit > upperBound).length,
+        'Undercharged': anomalies.filter(a => a.costPerUnit < lowerBound).length,
+        'Normal': validData.length - anomalies.length
+      };
+      
+      const chartData = Object.entries(anomalyTypes).map(([name, value]) => ({ name, value }));
+      
+      return {
+        type: 'kpi-chart',
+        title: 'Cost Anomaly Detection',
+        kpi: `${anomalies.length}`,
+        kpiLabel: 'Anomalies Detected',
+        chartData,
+        chartType: 'pie',
+        description: `Found ${anomalies.length} shipments with unusual costs out of ${validData.length} total. ${anomalyTypes.Overcharged} potentially overcharged, ${anomalyTypes.Undercharged} potentially undercharged.`
+      };
+    }
+    
+    // Forecast Shipping Expenses by Route
+    if (query.includes('forecast') || query.includes('expense') || (query.includes('cost') && query.includes('route'))) {
+      const hasRequiredData = data.some(d => 
+        d.origin_warehouse !== undefined && 
+        d.destination !== undefined && 
+        d.cost !== undefined
+      );
+      
+      if (!hasRequiredData) {
+        return {
+          type: 'text',
+          title: 'Shipping Expense Forecast',
+          description: 'Insufficient data for expense forecasting. Please ensure your CSV includes origin_warehouse, destination, and cost columns.'
+        };
+      }
+      
+      const validData = data.filter(d => 
+        d.origin_warehouse && 
+        d.destination && 
+        !isNaN(d.cost)
+      );
+      
+      const routeStats = {};
+      validData.forEach(d => {
+        const route = `${d.origin_warehouse} → ${d.destination}`;
+        if (!routeStats[route]) {
+          routeStats[route] = { costs: [], volumes: 0 };
+        }
+        routeStats[route].costs.push(d.cost);
+        routeStats[route].volumes++;
+      });
+      
+      const routeForecasts = Object.entries(routeStats)
+        .map(([route, stats]) => {
+          const avgCost = stats.costs.reduce((a, b) => a + b, 0) / stats.costs.length;
+          const totalCost = stats.costs.reduce((a, b) => a + b, 0);
+          return {
+            name: route,
+            value: parseFloat(avgCost.toFixed(2)),
+            totalCost: parseFloat(totalCost.toFixed(2)),
+            volume: stats.volumes
+          };
+        })
+        .sort((a, b) => b.totalCost - a.totalCost)
+        .slice(0, 8);
+      
+      const totalExpenses = routeForecasts.reduce((sum, r) => sum + r.totalCost, 0);
+      
+      return {
+        type: 'kpi-chart',
+        title: 'Shipping Expense Forecast by Route',
+        kpi: `$${totalExpenses.toFixed(2)}`,
+        kpiLabel: 'Total Route Expenses',
+        chartData: routeForecasts.map(r => ({ 
+          name: r.name.length > 20 ? r.name.substring(0, 20) + '...' : r.name, 
+          value: r.totalCost 
+        })),
+        chartType: 'bar',
+        description: `Top routes analyzed. Highest expense route: ${routeForecasts[0].name} at $${routeForecasts[0].totalCost} (${routeForecasts[0].volume} shipments, avg $${routeForecasts[0].value} each).`
+      };
+    }
+    
+    // Delay Rate
+    if (query.includes('delay rate') || query.includes('delays')) {
+      const hasDelayData = data.some(d => d.logistics_delay !== undefined && d.logistics_delay !== null);
+      const hasReasonData = data.some(d => d.logistics_delay_reason !== undefined && d.logistics_delay_reason !== null);
+      
+      if (!hasDelayData) {
+        return {
+          type: 'text',
+          title: 'Delay Analysis',
+          description: 'No logistics delay data available in the uploaded dataset. Please ensure your CSV includes a "logistics_delay" column.'
+        };
+      }
+      
+      const delayCount = data.filter(d => d.logistics_delay === 1 || d.logistics_delay === true || d.logistics_delay === '1').length;
+      const delayRate = ((delayCount / data.length) * 100).toFixed(1);
+      
+      let reasonData = [];
+      if (hasReasonData) {
+        const delayReasons = data
+          .filter(d => d.logistics_delay_reason && d.logistics_delay_reason !== 'None')
+          .reduce((acc, d) => {
+            acc[d.logistics_delay_reason] = (acc[d.logistics_delay_reason] || 0) + 1;
+            return acc;
+          }, {});
+        reasonData = Object.entries(delayReasons).map(([name, value]) => ({ name, value }));
+      }
+      
+      return {
+        type: 'kpi-chart',
+        title: 'Logistics Delay Analysis',
+        kpi: `${delayRate}%`,
+        kpiLabel: 'Overall Delay Rate',
+        description: `${delayCount} out of ${data.length} shipments experienced delays${!hasReasonData ? ' (Delay reason data not available)' : ''}`,
+        chartData: reasonData,
+        chartType: 'pie',
+        noChart: reasonData.length === 0
+      };
+    }
+    
+    // Shipment Status
+    if (query.includes('shipment status') || query.includes('status distribution')) {
+      const hasStatusData = data.some(d => d.shipment_status !== undefined && d.shipment_status !== null);
+      
+      if (!hasStatusData) {
+        return {
+          type: 'text',
+          title: 'Shipment Status',
+          description: 'No shipment status data available in the uploaded dataset. Please ensure your CSV includes a "shipment_status" column.'
+        };
+      }
+      
+      const statusData = data.reduce((acc, d) => {
+        if (d.shipment_status) {
+          acc[d.shipment_status] = (acc[d.shipment_status] || 0) + 1;
+        }
+        return acc;
+      }, {});
+      
+      const chartData = Object.entries(statusData).map(([name, value]) => ({ name, value }));
+      
+      return {
+        type: 'chart',
+        title: 'Shipment Status Distribution',
+        chartData,
+        chartType: 'bar',
+        description: `Total shipments tracked: ${data.length}`
+      };
+    }
+    
+    // Delay Reasons
+    if (query.includes('delay reason')) {
+      const hasReasonData = data.some(d => d.logistics_delay_reason !== undefined && d.logistics_delay_reason !== null);
+      
+      if (!hasReasonData) {
+        return {
+          type: 'text',
+          title: 'Delay Reasons',
+          description: 'No delay reason data available in the uploaded dataset. Please ensure your CSV includes a "logistics_delay_reason" column.'
+        };
+      }
+      
+      const reasonData = data
+        .filter(d => d.logistics_delay_reason && d.logistics_delay_reason !== 'None')
+        .reduce((acc, d) => {
+          acc[d.logistics_delay_reason] = (acc[d.logistics_delay_reason] || 0) + 1;
+          return acc;
+        }, {});
+      
+      const chartData = Object.entries(reasonData)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
+      
+      if (chartData.length === 0) {
+        return {
+          type: 'text',
+          title: 'Delay Reasons',
+          description: 'No delay reasons found in the dataset.'
+        };
+      }
+      
+      return {
+        type: 'chart',
+        title: 'Top Delay Reasons',
+        chartData,
+        chartType: 'bar',
+        description: 'Most common causes of logistics delays'
+      };
+    }
+    
+    // Asset Utilization
+    if (query.includes('utilization') || query.includes('asset')) {
+      const hasUtilizationData = data.some(d => d.asset_utilization !== undefined && d.asset_utilization !== null && !isNaN(d.asset_utilization));
+      
+      if (!hasUtilizationData) {
+        return {
+          type: 'text',
+          title: 'Asset Utilization',
+          description: 'No asset utilization data available in the uploaded dataset. Please ensure your CSV includes an "asset_utilization" column with numeric values.'
+        };
+      }
+      
+      const validData = data.filter(d => !isNaN(d.asset_utilization) && d.asset_utilization !== null);
+      const avgUtilization = (validData.reduce((sum, d) => sum + parseFloat(d.asset_utilization), 0) / validData.length).toFixed(1);
+      const utilizationRanges = {
+        'High (90-100%)': validData.filter(d => d.asset_utilization >= 90).length,
+        'Good (80-89%)': validData.filter(d => d.asset_utilization >= 80 && d.asset_utilization < 90).length,
+        'Moderate (70-79%)': validData.filter(d => d.asset_utilization >= 70 && d.asset_utilization < 80).length,
+        'Low (<70%)': validData.filter(d => d.asset_utilization < 70).length
+      };
+      
+      const chartData = Object.entries(utilizationRanges).map(([name, value]) => ({ name, value }));
+      
+      return {
+        type: 'kpi-chart',
+        title: 'Asset Utilization Analysis',
+        kpi: `${avgUtilization}%`,
+        kpiLabel: 'Average Utilization',
+        chartData,
+        chartType: 'pie',
+        description: 'Distribution of asset utilization across fleet'
+      };
+    }
+    
+    // Traffic Status
+    if (query.includes('traffic')) {
+      const hasTrafficData = data.some(d => d.traffic_status !== undefined && d.traffic_status !== null);
+      
+      if (!hasTrafficData) {
+        return {
+          type: 'text',
+          title: 'Traffic Status',
+          description: 'No traffic status data available in the uploaded dataset. Please ensure your CSV includes a "traffic_status" column.'
+        };
+      }
+      
+      const trafficData = data.reduce((acc, d) => {
+        if (d.traffic_status) {
+          acc[d.traffic_status] = (acc[d.traffic_status] || 0) + 1;
+        }
+        return acc;
+      }, {});
+      
+      const chartData = Object.entries(trafficData).map(([name, value]) => ({ name, value }));
+      
+      return {
+        type: 'chart',
+        title: 'Traffic Status Breakdown',
+        chartData,
+        chartType: 'pie',
+        description: 'Current traffic conditions across routes'
+      };
+    }
+    
+    // Waiting Time
+    if (query.includes('waiting time')) {
+      const hasWaitData = data.some(d => d.waiting_time !== undefined && d.waiting_time !== null && !isNaN(d.waiting_time));
+      
+      if (!hasWaitData) {
+        return {
+          type: 'text',
+          title: 'Waiting Time',
+          description: 'No waiting time data available in the uploaded dataset. Please ensure your CSV includes a "waiting_time" column with numeric values.'
+        };
+      }
+      
+      const validData = data.filter(d => !isNaN(d.waiting_time) && d.waiting_time !== null);
+      const avgWaitTime = (validData.reduce((sum, d) => sum + parseFloat(d.waiting_time), 0) / validData.length).toFixed(0);
+      const maxWaitTime = Math.max(...validData.map(d => parseFloat(d.waiting_time)));
+      
+      const timeRanges = {
+        '0-30 min': validData.filter(d => d.waiting_time <= 30).length,
+        '31-60 min': validData.filter(d => d.waiting_time > 30 && d.waiting_time <= 60).length,
+        '61-90 min': validData.filter(d => d.waiting_time > 60 && d.waiting_time <= 90).length,
+        '90+ min': validData.filter(d => d.waiting_time > 90).length
+      };
+      
+      const chartData = Object.entries(timeRanges).map(([name, value]) => ({ name, value }));
+      
+      return {
+        type: 'kpi-chart',
+        title: 'Waiting Time Analysis',
+        kpi: `${avgWaitTime} min`,
+        kpiLabel: 'Average Wait Time',
+        chartData,
+        chartType: 'bar',
+        description: `Maximum wait time: ${maxWaitTime} minutes`
+      };
+    }
+    
+    // Inventory Levels
+    if (query.includes('inventory')) {
+      const hasInventoryData = data.some(d => d.inventory_level !== undefined && d.inventory_level !== null && !isNaN(d.inventory_level));
+      
+      if (!hasInventoryData) {
+        return {
+          type: 'text',
+          title: 'Inventory Levels',
+          description: 'No inventory level data available in the uploaded dataset. Please ensure your CSV includes an "inventory_level" column with numeric values.'
+        };
+      }
+      
+      const validData = data.filter(d => !isNaN(d.inventory_level) && d.inventory_level !== null);
+      const avgInventory = (validData.reduce((sum, d) => sum + parseFloat(d.inventory_level), 0) / validData.length).toFixed(0);
+      const topAssets = validData
+        .filter(d => d.asset_id)
+        .sort((a, b) => b.inventory_level - a.inventory_level)
+        .slice(0, 10)
+        .map(d => ({ name: d.asset_id, value: d.inventory_level }));
+      
+      return {
+        type: 'kpi-chart',
+        title: 'Inventory Analysis',
+        kpi: avgInventory,
+        kpiLabel: 'Average Inventory Level',
+        chartData: topAssets,
+        chartType: 'bar',
+        description: topAssets.length > 0 ? 'Top 10 assets by inventory level' : 'Asset ID information not available'
+      };
+    }
+    
+    // Temperature
+    if (query.includes('temperature')) {
+      const hasTempData = data.some(d => d.temperature !== undefined && d.temperature !== null && !isNaN(d.temperature));
+      
+      if (!hasTempData) {
+        return {
+          type: 'text',
+          title: 'Temperature Analysis',
+          description: 'No temperature data available in the uploaded dataset. Please ensure your CSV includes a "temperature" column with numeric values.'
+        };
+      }
+      
+      const validData = data.filter(d => !isNaN(d.temperature) && d.temperature !== null);
+      const avgTemp = (validData.reduce((sum, d) => sum + parseFloat(d.temperature), 0) / validData.length).toFixed(1);
+      const minTemp = Math.min(...validData.map(d => parseFloat(d.temperature)));
+      const maxTemp = Math.max(...validData.map(d => parseFloat(d.temperature)));
+      
+      const tempRanges = {
+        'Cold (<15°C)': validData.filter(d => d.temperature < 15).length,
+        'Moderate (15-25°C)': validData.filter(d => d.temperature >= 15 && d.temperature <= 25).length,
+        'Warm (>25°C)': validData.filter(d => d.temperature > 25).length
+      };
+      
+      const chartData = Object.entries(tempRanges).map(([name, value]) => ({ name, value }));
+      
+      return {
+        type: 'kpi-chart',
+        title: 'Temperature Analysis',
+        kpi: `${avgTemp}°C`,
+        kpiLabel: 'Average Temperature',
+        chartData,
+        chartType: 'pie',
+        description: `Range: ${minTemp}°C to ${maxTemp}°C`
+      };
+    }
+    
+    return {
+      type: 'text',
+      title: 'Query Not Recognized',
+      description: 'Please try one of the sample questions or rephrase your query.'
+    };
+  };
+
   const handleAsk = (q) => {
     const questionToAsk = q || question;
     if (!questionToAsk.trim()) return;
@@ -743,12 +1273,9 @@ const LogisticsDashboard = () => {
     } else if (query.includes('what-if') || query.includes('scenario')) {
       setShowScenarios(true);
     } else {
-      // Handle other queries...
-      setAnswer({
-        type: 'text',
-        title: 'Query Response',
-        description: 'Try ML predictions or what-if scenarios!'
-      });
+      // Handle all other analytics queries
+      const result = analyzeQuestion(questionToAsk);
+      setAnswer(result);
     }
     
     setQuestion('');
@@ -821,10 +1348,7 @@ const LogisticsDashboard = () => {
                 <input
                   type="file"
                   accept=".csv"
-                  onChange={(e) => {
-                    console.log('File input onChange triggered:', e.target.files);
-                    handleFileUpload(e);
-                  }}
+                  onChange={handleFileUpload}
                   className="hidden"
                 />
               </label>
@@ -1252,6 +1776,108 @@ const LogisticsDashboard = () => {
               <Download className="w-5 h-5" />
               Export All Predictions
             </button>
+          </div>
+        )}
+
+        {/* Analytics Results Display */}
+        {answer && (answer.type === 'chart' || answer.type === 'kpi-chart') && (
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 mb-6 border border-white/20">
+            <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+              <TrendingUp className="w-6 h-6 text-blue-400" />
+              {answer.title}
+            </h2>
+            
+            {answer.type === 'kpi-chart' && (
+              <div>
+                <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg p-6 mb-6">
+                  <div className="text-sm text-blue-100 mb-1">{answer.kpiLabel}</div>
+                  <div className="text-5xl font-bold text-white">{answer.kpi}</div>
+                  <div className="text-sm text-blue-100 mt-2">{answer.description}</div>
+                </div>
+                
+                {!answer.noChart && answer.chartData && answer.chartData.length > 0 && (
+                  <ResponsiveContainer width="100%" height={300}>
+                    {answer.chartType === 'pie' ? (
+                      <PieChart>
+                        <Pie
+                          data={answer.chartData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={100}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {answer.chartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    ) : (
+                      <BarChart data={answer.chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#ffffff20" />
+                        <XAxis dataKey="name" stroke="#fff" />
+                        <YAxis stroke="#fff" />
+                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }} />
+                        <Bar dataKey="value" fill="#3b82f6" />
+                      </BarChart>
+                    )}
+                  </ResponsiveContainer>
+                )}
+              </div>
+            )}
+            
+            {answer.type === 'chart' && (
+              <div>
+                <p className="text-blue-200 mb-4">{answer.description}</p>
+                {answer.chartData && answer.chartData.length > 0 && (
+                  <ResponsiveContainer width="100%" height={300}>
+                    {answer.chartType === 'pie' ? (
+                      <PieChart>
+                        <Pie
+                          data={answer.chartData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={100}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {answer.chartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    ) : (
+                      <BarChart data={answer.chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#ffffff20" />
+                        <XAxis dataKey="name" stroke="#fff" />
+                        <YAxis stroke="#fff" />
+                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }} />
+                        <Bar dataKey="value" fill="#3b82f6" />
+                      </BarChart>
+                    )}
+                  </ResponsiveContainer>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Text Results Display */}
+        {answer && answer.type === 'text' && (
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+            <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+              <AlertTriangle className="w-6 h-6 text-yellow-400" />
+              {answer.title}
+            </h2>
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+              <p className="text-yellow-100">{answer.description}</p>
+            </div>
           </div>
         )}
 
